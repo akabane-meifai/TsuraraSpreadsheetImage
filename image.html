@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style type="text/css">
+body{
+  margin: 0;
+  padding: 0;
+}
+fieldset{
+  display: contents;
+}
+#list{
+  display: grid;
+  grid-template-columns: 1fr;
+  margin-bottom: 5px;
+}
+input[type="number"]{
+  text-align: right;
+}
+[data-id]{
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  grid-template-rows: 50px auto auto auto auto;
+  gap: 3px;
+  margin-top: 5px;
+  padding: 3px;
+  background: white;
+  border: 1px solid black;
+}
+[data-id] canvas{
+  height: 50px;
+  width: 50px;
+  object-fit: contain;
+  outline: 1px solid blue;
+  display: block;
+  margin: auto;
+}
+[data-id] input[type="number"]{
+  min-width: 0;
+}
+[data-id] .b{
+  font-weight: bold;
+  text-align: center;
+}
+[data-id] .colspan-2{
+  grid-column-end: span 2;
+}
+[data-id] [data-action]{
+  width: 100%;
+}
+.d-flex{
+  display: flex;
+}
+.d-flex select,.d-flex input[type="number"]{
+  flex-grow: 1;
+  min-width: 0;
+}
+.d-flex button{
+  white-space: nowrap;
+}
+.mb-1{
+  margin-bottom: 5px;
+}
+</style>
+<script type="text/javascript">
+class Data{
+  static items = {};
+  static affine = {};
+  static fill = {};
+  static stroke = {};
+  static setData(id, data){
+    let res = {};
+    let ln = null;
+    let data2 = [];
+    for(let row of data){
+      try{
+        if(row[0].charAt(0) == "#"){
+          let json = false;
+          let label = row[0].substring(1);
+          try{
+            if(label.charAt(0) == "{"){
+              let ldata = JSON.parse(label);
+              json = true;
+              res = Object.assign(ldata, res);
+            }
+          }catch(ex2){}
+          if(!json){
+            ln = label;
+          }
+        }
+      }catch(ex){}
+      if(row[0] !== true){
+        continue;
+      }
+      let row2 = {label: ln, p: new Path2D(row[3])};
+      let s = row[1];
+      let f = row[2];
+      let c = row[4];
+      let pos = -1;
+      if(s in Data.stroke){
+        row2.s = Data.stroke[s];
+      }else if((pos = s.indexOf("{")) >= 0){
+        let props = {};
+        let style = s.substring(0, pos).trim();
+        let data3 = JSON.parse(s.substring(pos));
+        if(style != ""){
+          props.strokeStyle = style;
+        }
+        if("width" in data3){
+          props.lineWidth = data3.width;
+        }
+        if("cap" in data3){
+          props.lineCap = data3.cap;
+        }
+        if("join" in data3){
+          props.lineJoin = data3.join;
+        }
+        if("dashOffset" in data3){
+          props.lineDashOffset = data3.dashOffset;
+        }
+        row2.s = Data.stroke[s] = props;
+      }else if(s != ""){
+        row2.s = {strokeStyle: s};
+      }
+      if(f in Data.fill){
+        row2.f = Data.fill[f];
+      }else if((pos = f.indexOf("{")) >= 0){
+        let props = {};
+        let style = f.substring(0, pos).trim();
+        let data3 = JSON.parse(f.substring(pos));
+        if(style != ""){
+          props.fillStyle = style;
+        }
+        if("gradient" in data3){
+          props.gradient = data3.gradient;
+        }
+        row2.f = Data.fill[f] = props;
+      }else if(f != ""){
+        row2.f = {fillStyle: f};
+      }
+      if(c != ""){
+        row2.c = new Path2D(c);
+      }
+      data2.push(row2);
+    }
+    Data.items[id] = data2;
+    Data.affine[id] = [1, 0, 0, 1, 0, 0];
+    return res;
+  }
+  static draw(id, ctx){
+    ctx.save();
+    ctx.transform(...Data.affine[id]);
+    Object.defineProperty(ctx, "gradient", Data.gradient);
+    for(let row of Data.items[id]){
+      if("c" in row){
+        ctx.save();
+        ctx.clip(row.c);
+      }
+      if("f" in row){
+        Object.assign(ctx, row.f).fill(row.p);
+      }
+      if("s" in row){
+        Object.assign(ctx, row.s).stroke(row.p);
+      }
+      if("c" in row){
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+  static gradient = {
+    set: function(value){
+      if(value.style.length == 3){
+        let g = this.createConicGradient(...value.style);
+        for(let s of value.colorStep){
+          g.addColorStop(...s);
+        }
+        this.fillStyle = g;
+      }else if(value.style.length == 4){
+        let g = this.createLinearGradient(...value.style);
+        for(let s of value.colorStep){
+          g.addColorStop(...s);
+        }
+        this.fillStyle = g;
+      }
+    }
+  };
+}
+class Controller{
+  constructor(id, element){
+    this.id = id;
+    this.element = element;
+  }
+  deleteAction(){
+    delete Data.items[this.id];
+    delete Data.affine[this.id];
+    this.element.parentNode.removeChild(this.element);
+  }
+  reloadAction(){
+    this.draw();
+  }
+  draw(){
+    Data.affine[this.id] = [
+      Number(this.element.querySelector('.scale-x').value),
+      Number(this.element.querySelector('.skew-y').value),
+      Number(this.element.querySelector('.skew-x').value),
+      Number(this.element.querySelector('.scale-y').value),
+      Number(this.element.querySelector('.translate-x').value),
+      Number(this.element.querySelector('.translate-y').value)
+    ];
+    Data.draw(this.id, Object.assign(this.element.querySelector('canvas'), {
+        width: Number(this.element.querySelector('.width').value),
+        height: Number(this.element.querySelector('.height').value)
+    }).getContext("2d"));
+  }
+}
+function setValue(type){
+  let data = Object.assign(JSON.parse("<?=data?>"), {
+    canvas: {
+      width: Number(document.getElementById("width").value),
+      height: Number(document.getElementById("height").value)
+    }
+  });
+  let items = document.querySelectorAll("#list [data-id]");
+  let canvas = Object.assign(document.createElement("canvas"), data.canvas);
+  let ctx = canvas.getContext("2d");
+  for(let element of items){
+    Data.draw(element.getAttribute("data-id"), ctx);
+  }
+  google.script.run.setImage(canvas.toDataURL("image/png"), type);
+}
+function importData(data){
+  let id = Date.now();
+  let div = document.createElement("div");
+  let controller = new Controller(id, div);
+  let onChange = e => {
+    controller[`${e.currentTarget.value}Action`]();
+    e.currentTarget.value = "";
+  };
+  div.setAttribute("data-id", id);
+  div.insertAdjacentHTML("beforeend", `
+<canvas></canvas>
+<div class="colspan-2">
+  <select data-action="action">
+    <option value="" selected hidden>設定の更新／削除</option>
+    <option value="reload">設定の更新</option>
+    <option value="delete">削除</option>
+  </select>
+</div>
+<div class="b">size</div><div class="b">width</div><div class="b">height</div>
+<div></div><input type="number" class="width" /><input type="number" class="height" />
+<div class="b">transform</div><div class="b">x</div><div class="b">y</div>
+<div>scale</div><input type="number" class="scale-x" value="1" step="0.001" /><input type="number" class="scale-y" value="1" step="0.001" />
+<div>translate</div><input type="number" class="translate-x" value="0" step="0.001" /><input type="number" class="translate-y" value="0" step="0.001" />
+<div>skew</div><input type="number" class="skew-x" value="0" step="0.001" /><input type="number" class="skew-y" value="0" step="0.001" />
+  `.trim());
+  div.querySelector('[data-action]').addEventListener("change", onChange);
+  document.getElementById("list").appendChild(div);
+  let props = Data.setData(id, JSON.parse(data));
+  console.log(props);
+  console.table(Data.items[id]);
+  div.querySelector('.width').value = ("width" in props) ? props.width : document.getElementById("width").value;
+  div.querySelector('.height').value = ("height" in props) ? props.height : document.getElementById("height").value;
+  if("scale" in props){
+    if("x" in props.scale){
+      div.querySelector('.scale-x').value = props.scale.x;
+    }
+    if("y" in props.scale){
+      div.querySelector('.scale-y').value = props.scale.y;
+    }
+  }
+  if("translate" in props){
+    if("x" in props.translate){
+      div.querySelector('.translate-x').value = props.translate.x;
+    }
+    if("y" in props.translate){
+      div.querySelector('.translate-y').value = props.translate.y;
+    }
+  }
+  if("skew" in props){
+    if("x" in props.skew){
+      div.querySelector('.skew-x').value = props.skew.x;
+    }
+    if("y" in props.skew){
+      div.querySelector('.skew-y').value = props.skew.y;
+    }
+  }
+  controller.draw();
+}
+function cellSize(data){
+  let [width, height] = data.split(",");
+  document.getElementById("width").value = width;
+  document.getElementById("height").value = height;
+}
+function sizeRecalc(){
+  let [width, height] = [1, 1];
+  let inputElements = document.querySelectorAll('.width');
+  for(let input of inputElements){
+    width = Math.max(width, Number(input.value));
+  }
+  inputElements = document.querySelectorAll('.height');
+  for(let input of inputElements){
+    height = Math.max(height, Number(input.value));
+  }
+  document.getElementById("width").value = width;
+  document.getElementById("height").value = height;
+}
+</script>
+</head>
+<body>
+<form>
+<div id="list"></div>
+<div class="d-flex">
+  <select id="namedrange">
+  <?nameList.forEach(name => {?><option value="<?=name?>"><?=name?></option><?})?>
+  </select><button type="submit" formaction="javascript:google.script.run.withSuccessHandler(importData).importData(document.getElementById('namedrange').value)">名前付き範囲を読込</button>
+</div>
+<hr />
+<div class="d-flex mb-1">
+  <input type="number" id="width" value="100" />
+  x
+  <input type="number" id="height" value="100" />
+  <button type="submit" formaction="javascript:sizeRecalc()">全体を表示</button>
+  <button type="submit" formaction="javascript:google.script.run.withSuccessHandler(cellSize).cellSize()">セルの大きさ</button>
+</div>
+<button type="submit" formaction="javascript:setValue(1)">セル内に貼付</button>
+<button type="submit" formaction="javascript:setValue(2)">セル上に貼付</button>
+</form>
+</body>
+</html>
